@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>65bugs Clinical Insights - 100 Patient Cohort</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+    <style>
+        .dataTables_wrapper .dataTables_paginate .paginate_button.current {
+            background: #4f46e5 !important;
+            color: white !important;
+            border: none;
+            border-radius: 0.375rem;
+        }
+        canvas { max-height: 400px; width: 100% !important; }
+
+        @media print {
+            .no-print, .no-present, #modal, .dataTables_filter, .dataTables_paginate {
+                display: none !important;
+            }
+            body {
+                background-color: white !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            .shadow-lg, .shadow-xl, .shadow-sm {
+                box-shadow: none !important;
+                border: 1px solid #e2e8f0 !important;
+            }
+            main { padding: 0 !important; margin: 0 !important; }
+            .container { width: 100% !important; max-width: 100% !important; }
+            .page-break { page-break-before: always; }
+        }
+
+        .presentation-mode header, .presentation-mode footer, .presentation-mode .no-present { display: none !important; }
+        .modal { transition: opacity 0.25s ease; }
+        body.modal-active { overflow-x: hidden; overflow-y: visible !important; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans transition-all duration-500">
+
+    <!-- Header -->
+    <header class="bg-indigo-900 text-white p-6 shadow-xl no-print">
+        <div class="container mx-auto flex flex-wrap justify-between items-center gap-4">
+            <div>
+                <h1 class="text-2xl font-bold tracking-tight">65bugs HIV Monitoring System</h1>
+                <p class="text-xs text-indigo-300 uppercase tracking-widest">Enterprise Cloud Edition (100+ Cohort)</p>
+            </div>
+            <div class="flex items-center gap-4">
+                <button onclick="window.toggleModal()" class="bg-white text-indigo-900 px-4 py-2 rounded-lg font-bold text-sm shadow-md hover:bg-slate-100 transition-all">
+                    + ADD PATIENT
+                </button>
+                <button onclick="window.togglePresentation()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-md transition-all">
+                    PRESENTATION
+                </button>
+                <button onclick="window.print()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-md transition-all">
+                    DOWNLOAD PDF
+                </button>
+                <div class="bg-indigo-800 px-4 py-2 rounded-lg border border-indigo-700 shadow-inner">
+                    <span id="session-timer" class="font-mono text-lg font-bold text-white">24:00:00</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto py-8 px-4">
+        <!-- Dashboard Stats -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-10">
+            <div class="bg-white p-5 rounded-xl shadow-sm border-b-4 border-blue-500">
+                <h3 class="text-slate-400 text-xs font-bold uppercase">Total Cohort</h3>
+                <p id="stat-total" class="text-2xl font-black">0</p>
+            </div>
+            <div class="bg-white p-5 rounded-xl shadow-sm border-b-4 border-emerald-500">
+                <h3 class="text-slate-400 text-xs font-bold uppercase">Adherence Avg</h3>
+                <p id="stat-adherence" class="text-2xl font-black text-emerald-600">0%</p>
+            </div>
+            <div class="bg-white p-5 rounded-xl shadow-sm border-b-4 border-orange-500">
+                <h3 class="text-slate-400 text-xs font-bold uppercase">Undetectable</h3>
+                <p id="stat-undetectable" class="text-2xl font-black text-orange-600">0%</p>
+            </div>
+            <div class="bg-white p-5 rounded-xl shadow-sm border-b-4 border-indigo-500">
+                <h3 class="text-slate-400 text-xs font-bold uppercase">Cloud Health</h3>
+                <p class="text-2xl font-black text-indigo-600">Local Cache</p>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="grid grid-cols-1 xl:grid-cols-3 gap-8 mb-10" id="visuals-section">
+            <div class="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 xl:col-span-1">
+                <h2 class="text-lg font-bold text-slate-800 mb-6 border-b pb-4 uppercase italic">Adherence Mix</h2>
+                <div class="relative h-[300px] flex items-center justify-center">
+                    <canvas id="adherencePieChart"></canvas>
+                </div>
+            </div>
+            <div class="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 xl:col-span-2">
+                <h2 class="text-lg font-bold text-slate-800 mb-6 border-b pb-4 uppercase italic">Cohort CD4 Trajectories (All Visits)</h2>
+                <canvas id="overallChart"></canvas>
+            </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 mb-10">
+            <div class="flex justify-between items-center mb-6 border-b pb-4">
+                <h2 class="text-lg font-bold text-slate-800 uppercase italic">Individual Longitudinal View</h2>
+                <div class="no-print no-present flex items-center gap-2">
+                    <select id="patientSelector" onchange="window.updateChart(this.value)" class="bg-slate-100 border-none rounded-lg px-3 py-1 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none"></select>
+                </div>
+            </div>
+            <canvas id="individualChart"></canvas>
+        </div>
+
+        <!-- Watchlist -->
+        <div class="bg-red-50 p-8 rounded-2xl shadow-lg border border-red-200 mb-10 page-break">
+            <h2 class="text-xl font-black text-red-800 uppercase italic mb-4">⚠️ Critical Watchlist (<90% Adherence)</h2>
+            <div class="overflow-x-auto">
+                <table id="adherenceTable" class="w-full text-left">
+                    <thead>
+                        <tr class="text-red-400 text-[10px] uppercase border-b border-red-200">
+                            <th class="p-4">UID</th>
+                            <th>Name</th>
+                            <th>Adherence</th>
+                            <th>VL Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adherenceBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Master Registry -->
+        <div class="bg-white p-8 rounded-2xl shadow-lg border border-slate-100 page-break">
+            <h2 class="text-xl font-black text-slate-800 italic uppercase mb-6">Patient Master List</h2>
+            <div class="overflow-x-auto">
+                <table id="patientTable" class="display w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-slate-400 text-xs uppercase border-b">
+                            <th class="p-4">UID</th>
+                            <th>Full Name</th>
+                            <th>Latest CD4</th>
+                            <th>Latest VL</th>
+                            <th>Adherence</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal (Add Patient) -->
+    <div id="modal" class="modal fixed w-full h-full top-0 left-0 flex items-center justify-center opacity-0 pointer-events-none z-50">
+        <div class="modal-overlay absolute w-full h-full bg-gray-900 opacity-50"></div>
+        <div class="modal-container bg-white w-11/12 md:max-w-md mx-auto rounded shadow-lg z-50 overflow-y-auto">
+            <div class="modal-content py-4 text-left px-6">
+                <div class="flex justify-between items-center pb-3 border-b">
+                    <p class="text-2xl font-bold">New Clinical Entry</p>
+                    <div class="modal-close cursor-pointer z-50" onclick="window.toggleModal()">
+                        <svg class="fill-current text-black" width="18" height="18" viewBox="0 0 18 18"><path d="M14.53 4.53l-1.06-1.06L9 7.94 4.53 3.47 3.47 4.53 7.94 9l-4.47 4.47 1.06 1.06L9 10.06l4.47 4.47 1.06-1.06L10.06 9z"></path></svg>
+                    </div>
+                </div>
+                <form id="addPatientForm" class="space-y-4 pt-4">
+                    <input type="text" id="pName" placeholder="Full Name" class="w-full border p-2 rounded" required>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input type="number" id="pCd4" placeholder="Current CD4" class="border p-2 rounded" required>
+                        <input type="number" id="pVL" placeholder="Current VL" class="border p-2 rounded" required>
+                    </div>
+                    <input type="number" id="pAdh" placeholder="Adherence (0-100)" class="w-full border p-2 rounded" required>
+                    <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-2 rounded">SIMULATE ADDITION</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <footer class="mt-12 py-10 bg-slate-900 text-white text-center no-print">
+        <p class="text-sm opacity-50 font-mono italic">65BUGS PTY LTD - MASTER HARDCODED CACHE ACTIVE</p>
+        <p class="mt-2 font-bold text-indigo-400">Oageng Motlapele | CEO & Lead Dev</p>
+    </footer>
+
+    <script type="module">
+        const intervals = ['21-H1', '21-H2', '22-H1', '22-H2', '23-H1', '23-H2', '24-H1', '24-H2', '25-H1', '25-H2'];
+        let individualChart, overallChart, adherencePieChart;
+
+        // --- HARDCODED 100 PATIENT DATASET ---
+        const firstNames = ["Thabo", "Khotso", "Lerato", "Mpho", "Sello", "Palesa", "Neo", "Lesedi", "Karabo", "Tumelo", "Amo", "Bose", "Dintle", "Erek", "Gofa", "Hapi", "Itu", "Jabu", "Kele", "Lindi"];
+        const lastNames = ["Mokoena", "Molefe", "Smit", "Dube", "Nkosi", "Zwane", "Khumalo", "Botha", "Lekota", "Ndlovu", "Tau", "Sebo", "Pula", "Roo", "Van Wyk", "Govender", "Naidoo", "Pillay", "Zuma", "Ram"];
+
+        let patients = Array.from({ length: 100 }, (_, i) => {
+            const f = firstNames[Math.floor(Math.random() * firstNames.length)];
+            const l = lastNames[Math.floor(Math.random() * lastNames.length)];
+            const uidNum = 1001 + i;
+
+            let cd4 = 400 + Math.floor(Math.random() * 200);
+            const cd4History = Array.from({ length: 10 }, () => {
+                cd4 += Math.floor(Math.random() * 40 - 20);
+                return Math.max(100, Math.min(1200, cd4));
+            });
+
+            let vl = Math.random() > 0.8 ? 1000 : 20;
+            const vlHistory = Array.from({ length: 10 }, () => {
+                vl = Math.max(10, vl + Math.floor(Math.random() * 200 - 100));
+                return vl;
+            });
+
+            return {
+                id: `id-${uidNum}`,
+                uid: `65B-${uidNum}`,
+                name: `${f} ${l}`,
+                cd4History: cd4History,
+                viralLoadHistory: vlHistory,
+                adherence: 75 + Math.floor(Math.random() * 26), // Mostly adherent
+                createdAt: new Date().toISOString()
+            };
+        });
+
+        // --- UI FUNCTIONS ---
+        window.toggleModal = () => {
+            const modal = document.getElementById('modal');
+            modal.classList.toggle('opacity-0');
+            modal.classList.toggle('pointer-events-none');
+        };
+
+        window.togglePresentation = () => document.body.classList.toggle('presentation-mode');
+
+        window.viewPatient = (id) => {
+            document.getElementById('patientSelector').value = id;
+            window.updateChart(id);
+            document.getElementById('visuals-section').scrollIntoView({ behavior: 'smooth' });
+        };
+
+        window.updateChart = (id) => {
+            const p = patients.find(p => p.id === id);
+            if (!p) return;
+            const ctx = document.getElementById('individualChart').getContext('2d');
+            if (individualChart) individualChart.destroy();
+            individualChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: intervals,
+                    datasets: [
+                        { label: 'CD4 Count', data: p.cd4History, borderColor: '#4f46e5', backgroundColor: 'rgba(79, 70, 229, 0.1)', fill: true, tension: 0.4 },
+                        { label: 'Viral Load', data: p.viralLoadHistory, borderColor: '#ef4444', borderDash: [5, 2], tension: 0.4, yAxisID: 'y1' }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    animation: { duration: 500 },
+                    scales: {
+                        y: { title: { display: true, text: 'CD4 (Cells/mm³)' } },
+                        y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'VL (Copies/mL)' } }
+                    }
+                }
+            });
+        };
+
+        function renderOverallChart() {
+            const ctx = document.getElementById('overallChart').getContext('2d');
+            if (overallChart) overallChart.destroy();
+
+            const datasets = patients.map((p, i) => ({
+                label: p.uid,
+                data: p.cd4History,
+                borderColor: 'rgba(79, 70, 229, 0.04)',
+                borderWidth: 1,
+                pointRadius: 0,
+                tension: 0.3,
+                fill: false
+            }));
+
+            const avgData = intervals.map((_, idx) => {
+                const sum = patients.reduce((acc, p) => acc + p.cd4History[idx], 0);
+                return Math.round(sum / patients.length);
+            });
+
+            datasets.push({
+                label: 'COHORT AVERAGE',
+                data: avgData,
+                borderColor: '#10b981',
+                borderWidth: 4,
+                pointRadius: 2,
+                backgroundColor: '#10b981',
+                tension: 0.4,
+                fill: false,
+                order: -1
+            });
+
+            overallChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: intervals, datasets: datasets },
+                options: {
+                    animation: false,
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { title: { display: true, text: 'CD4 Count' } } }
+                }
+            });
+        }
+
+        function renderPieChart() {
+            const ctx = document.getElementById('adherencePieChart').getContext('2d');
+            if (adherencePieChart) adherencePieChart.destroy();
+
+            const adherentCount = patients.filter(p => p.adherence >= 95).length;
+            const cautionCount = patients.filter(p => p.adherence >= 90 && p.adherence < 95).length;
+            const nonAdherentCount = patients.filter(p => p.adherence < 90).length;
+
+            adherencePieChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: ['Adherent (≥95%)', 'Caution (90-94%)', 'Non-Adherent (<90%)'],
+                    datasets: [{
+                        data: [adherentCount, cautionCount, nonAdherentCount],
+                        backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { font: { weight: 'bold' } } }
+                    }
+                }
+            });
+        }
+
+        function renderUI() {
+            const tbody = document.getElementById('tableBody');
+            const abody = document.getElementById('adherenceBody');
+            const selector = document.getElementById('patientSelector');
+
+            tbody.innerHTML = '';
+            abody.innerHTML = '';
+            selector.innerHTML = '';
+
+            let totalAdh = 0;
+            let undetectable = 0;
+
+            patients.forEach(p => {
+                const latestVL = p.viralLoadHistory[9];
+                const latestCD4 = p.cd4History[9];
+                totalAdh += p.adherence;
+                if (latestVL < 50) undetectable++;
+
+                tbody.innerHTML += `<tr>
+                    <td class="p-4"><button onclick="viewPatient('${p.id}')" class="font-bold text-indigo-600 underline">${p.uid}</button></td>
+                    <td>${p.name}</td>
+                    <td>${latestCD4}</td>
+                    <td><span class="px-2 py-0.5 rounded text-[10px] font-bold ${latestVL < 50 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${latestVL}</span></td>
+                    <td class="font-bold">${p.adherence}%</td>
+                </tr>`;
+
+                if (p.adherence < 90) {
+                    abody.innerHTML += `<tr class="border-b border-red-100 bg-white hover:bg-red-50">
+                        <td class="p-4 font-bold text-red-600"><button onclick="viewPatient('${p.id}')" class="underline">${p.uid}</button></td>
+                        <td>${p.name}</td>
+                        <td class="font-black text-red-600">${p.adherence}%</td>
+                        <td>${latestVL < 50 ? 'Undetectable' : 'High Risk'}</td>
+                    </tr>`;
+                }
+
+                selector.innerHTML += `<option value="${p.id}">${p.uid} - ${p.name}</option>`;
+            });
+
+            document.getElementById('stat-total').innerText = patients.length;
+            document.getElementById('stat-adherence').innerText = Math.round(totalAdh / patients.length) + '%';
+            document.getElementById('stat-undetectable').innerText = Math.round((undetectable / patients.length) * 100) + '%';
+
+            if ($.fn.DataTable.isDataTable('#patientTable')) $('#patientTable').DataTable().destroy();
+            $('#patientTable').DataTable({ pageLength: 10, dom: 'ftp' });
+
+            window.updateChart(patients[0].id);
+            renderOverallChart();
+            renderPieChart();
+        }
+
+        // --- INIT ---
+        window.onload = () => {
+            renderUI();
+
+            let totalSeconds = 86400;
+            setInterval(() => {
+                totalSeconds--;
+                const h = Math.floor(totalSeconds / 3600);
+                const m = Math.floor((totalSeconds % 3600) / 60);
+                const s = totalSeconds % 60;
+                const display = document.getElementById('session-timer');
+                if (display) display.textContent = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+            }, 1000);
+        };
+
+        document.getElementById('addPatientForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const newIdNum = 1000 + patients.length + 1;
+            const newP = {
+                id: `id-${newIdNum}`,
+                uid: `65B-${newIdNum}`,
+                name: document.getElementById('pName').value,
+                cd4History: Array(10).fill(parseInt(document.getElementById('pCd4').value)),
+                viralLoadHistory: Array(10).fill(parseInt(document.getElementById('pVL').value)),
+                adherence: parseInt(document.getElementById('pAdh').value),
+                createdAt: new Date().toISOString()
+            };
+            patients.push(newP);
+            renderUI();
+            window.toggleModal();
+            document.getElementById('addPatientForm').reset();
+        });
+    </script>
+</body>
+</html>
